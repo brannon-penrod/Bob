@@ -1,68 +1,108 @@
 ﻿using Discord;
-using Discord.Audio;
+using Discord.WebSocket;
+using System;
 using System.Collections.Concurrent;
-using System.Diagnostics;
-using System.IO;
+using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
+using Victoria;
+using Victoria.Enums;
+using Victoria.EventArgs;
 
 namespace Bobert.Services
 {
-    public class AudioService
+    public sealed class AudioService
     {
-        private readonly ConcurrentDictionary<ulong, IAudioClient> ConnectedChannels = new();
+        private readonly DiscordSocketClient _client;
+        private readonly LavaNode _lavaNode;
+        public readonly HashSet<ulong> VoteQueue;
+        private readonly ConcurrentDictionary<ulong, CancellationTokenSource> _disconnectTokens;
 
-        public async Task JoinAudio(IGuild guild, IVoiceChannel target)
+        public AudioService(DiscordSocketClient client, LavaNode lavaNode)
         {
-            if (ConnectedChannels.TryGetValue(guild.Id, out _))
-                return;
+            _client = client;
+            _lavaNode = lavaNode;
+            _disconnectTokens = new ConcurrentDictionary<ulong, CancellationTokenSource>();
 
-            if (target.Guild.Id != guild.Id)
-                return;
+            //_lavaNode.OnLog += arg => {
+            //    _logger.Log(arg.Severity.FromSeverityToLevel(), arg.Exception, arg.Message);
+            //    return Task.CompletedTask;
+            //};
 
-            var audioClient = await target.ConnectAsync();
+            _lavaNode.OnTrackEnded += OnTrackEnded;
+            _lavaNode.OnTrackStarted += OnTrackStarted;
 
-            if(ConnectedChannels.TryAdd(guild.Id, audioClient))
-            {
-                // log?
-            }
+            VoteQueue = new HashSet<ulong>();
         }
 
-        public async Task LeaveAudio(IGuild guild)
+        private async Task OnTrackStarted(TrackStartEventArgs arg)
         {
-            if (ConnectedChannels.TryRemove(guild.Id, out IAudioClient client))
-            {
-                await client.StopAsync();
-            }
-        }
+            await arg.Player.TextChannel.SendMessageAsync($"Now playing: {arg.Track.Title}");
 
-        public async Task SendAudioAsync(IGuild guild, IMessageChannel channel, string path)
-        {
-            if (!File.Exists(path))
+            await _client.SetGameAsync(arg.Track.Title, type: ActivityType.Listening);
+
+            if (!_disconnectTokens.TryGetValue(arg.Player.VoiceChannel.Id, out var value))
             {
-                await channel.SendMessageAsync("File does not exist.");
                 return;
             }
-            IAudioClient client;
-            if (ConnectedChannels.TryGetValue(guild.Id, out client))
+
+            if (value.IsCancellationRequested)
             {
-                using (var ffmpeg = CreateProcess(path))
-                using (var stream = client.CreatePCMStream(AudioApplication.Music))
-                {
-                    try { await ffmpeg.StandardOutput.BaseStream.CopyToAsync(stream); }
-                    finally { await stream.FlushAsync(); }
-                }
+                return;
             }
+
+            value.Cancel(true);
+            await arg.Player.TextChannel.SendMessageAsync("Auto disconnect has been cancelled!");
         }
 
-        private Process CreateProcess(string path)
+        private async Task OnTrackEnded(TrackEndedEventArgs args)
         {
-            return Process.Start(new ProcessStartInfo
+            if (args.Reason != TrackEndReason.Finished)
             {
-                FileName = "ffmpeg.exe",
-                Arguments = $"-hide_banner -loglevel panic -i \"{path}\" -ac 2 -f s16le -ar 48000 pipe:1",
-                UseShellExecute = false,
-                RedirectStandardOutput = true
-            });
+                return;
+            }
+
+            var player = args.Player;
+            if (!player.Queue.TryDequeue(out var lavaTrack))
+            {
+                await player.TextChannel.SendMessageAsync("Queue completed.");
+                _ = InitiateDisconnectAsync(args.Player, TimeSpan.FromSeconds(10));
+                return;
+            }
+
+            if (lavaTrack is null)
+            {
+                await player.TextChannel.SendMessageAsync("Next item in queue is not a track.");
+                return;
+            }
+
+            await args.Player.PlayAsync(lavaTrack);
+            await args.Player.TextChannel.SendMessageAsync(
+                $"{args.Reason}: {args.Track.Title}\nNow playing: {lavaTrack.Title}");
+        }
+
+        private async Task InitiateDisconnectAsync(LavaPlayer player, TimeSpan timeSpan)
+        {
+            if (!_disconnectTokens.TryGetValue(player.VoiceChannel.Id, out var value))
+            {
+                value = new CancellationTokenSource();
+                _disconnectTokens.TryAdd(player.VoiceChannel.Id, value);
+            }
+            else if (value.IsCancellationRequested)
+            {
+                _disconnectTokens.TryUpdate(player.VoiceChannel.Id, new CancellationTokenSource(), value);
+                value = _disconnectTokens[player.VoiceChannel.Id];
+            }
+
+            await player.TextChannel.SendMessageAsync($"Auto disconnect initiated! Disconnecting in {timeSpan}...");
+            var isCancelled = SpinWait.SpinUntil(() => value.IsCancellationRequested, timeSpan);
+            if (isCancelled)
+            {
+                return;
+            }
+
+            await _lavaNode.LeaveAsync(player.VoiceChannel);
+            await player.TextChannel.SendMessageAsync("Invite me again sometime, sugar.");
         }
     }
 }

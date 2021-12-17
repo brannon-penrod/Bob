@@ -21,18 +21,22 @@ namespace Bobert.Services
             _commands = commands;
             _config = config;
             _services = services;
-        }
+         }
 
         public async Task StartAsync()
         {
+            string appName = _config["app:name"];
             string discordToken = _config["tokens:discord"];
             string prefix = _config["prefix"];
 
+            if (string.IsNullOrWhiteSpace(appName))
+                throw new ArgumentNullException("Please enter an app name into the `_config.json` file found in the application's root directory.");
+
             if (string.IsNullOrWhiteSpace(discordToken))
-                throw new ArgumentNullException("Please enter Bobert's token info into the `_configuration.json` file found in the application's root directory.");
+                throw new ArgumentNullException($"Please enter a Discord token for {appName} info into the `_config.json` file found in the application's root directory.");
 
             if(string.IsNullOrWhiteSpace(prefix))
-                throw new ArgumentNullException("Bobert needs a prefix in the `_configuration.json` file found in the application's root directory.");
+                throw new ArgumentNullException($"Please enter a Discord command prefix for {appName} in the `_config.json` file found in the application's root directory.");
 
             await _discord.LoginAsync(TokenType.Bot, discordToken);
             await _discord.StartAsync();

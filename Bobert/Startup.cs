@@ -5,10 +5,8 @@ using Discord.WebSocket;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
 using System.Threading.Tasks;
+using Victoria;
 
 namespace Bobert
 {
@@ -47,11 +45,13 @@ namespace Bobert
 
         private async Task ConfigureServicesAsync(IServiceCollection services)
         {
-            services.AddSingleton(new DiscordSocketClient(new DiscordSocketConfig
+            var dsc = new DiscordSocketClient(new DiscordSocketConfig
             {
                 LogLevel = LogSeverity.Verbose,
                 MessageCacheSize = 1000
-            }))
+            });
+
+            services.AddSingleton(dsc)
             .AddSingleton(new CommandService(new CommandServiceConfig
             {
                 LogLevel = LogSeverity.Verbose,
@@ -63,8 +63,13 @@ namespace Bobert
             .AddSingleton<LoggingService>()
             .AddSingleton<CommandHandler>()
             .AddSingleton<AudioService>()
-            .AddSingleton<Random>()
+            .AddLavaNode(x =>
+            {
+                x.SelfDeaf = true;
+            })
             .AddSingleton(Configuration);
+
+            await Task.CompletedTask;
         }
     }
 }

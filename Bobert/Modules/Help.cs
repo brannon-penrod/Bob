@@ -5,7 +5,7 @@ using Microsoft.Extensions.Configuration;
 using System.Linq;
 using System.Threading.Tasks;
 
-namespace Boomer.Modules
+namespace Bobert.Modules
 {
     public class Help : ModuleBase<SocketCommandContext>
     {
@@ -26,11 +26,12 @@ namespace Boomer.Modules
             {
                 Color = Bot.SuccessColor,
             };
+
             builder.Description +=
                     $"Prefix: {_config["prefix"]}\n" +
-                    $"[*Required parameter*]\n" +
-                    $"<*Optional parameter*>\n" +
-                    $"(**Secondary aliases**)";
+                    $"[Required parameter]\n" +
+                    $"<Optional parameter>\n" +
+                    $"(Alias)";
 
             // add all commands' information to the help message
             foreach (ModuleInfo module in _service.Modules)
@@ -67,8 +68,18 @@ namespace Boomer.Modules
                 }
             }
 
-            await Context.Message.DeleteAsync();
-            await Context.User.SendMessageAsync("", false, builder.Build());
+            if(!Context.IsPrivate)
+                await Context.Message.DeleteAsync();
+
+            try
+            {
+                await Context.User.SendMessageAsync("", false, builder.Build());
+            } catch(Discord.Net.HttpException)
+            {
+                await Context.Channel.SendMessageAsync("It seems your DMs are not open. Sending Help message here instead.");
+
+                await Context.Channel.SendMessageAsync("", false, builder.Build());
+            }
         }
 
         [Command("help", ignoreExtraArgs: false)]
@@ -117,7 +128,9 @@ namespace Boomer.Modules
                     else builder.Description += $"No command found with name {search}.\n";
                 }
 
-                await Context.Message.DeleteAsync();
+                if (!Context.IsPrivate)
+                    await Context.Message.DeleteAsync();
+
                 await Context.User.SendMessageAsync(embed: builder.Build());
             }
         }
@@ -132,9 +145,9 @@ namespace Boomer.Modules
                 var list = cmd.Aliases.ToList();
                 list.RemoveAt(0);
 
-                string aliases = string.Join("**, **", list);
+                string aliases = string.Join(", ", list);
 
-                description += $" (**{aliases}**)";
+                description += $" ({aliases})";
             }
 
             if (cmd.Parameters.Count > 0)
@@ -143,9 +156,9 @@ namespace Boomer.Modules
                 foreach (var param in cmd.Parameters)
                 {
                     if (param.IsOptional)
-                        description += $" <*{param.Name}*>";
+                        description += $" <{param.Name}>";
                     else // the parameter is required
-                        description += $" [*{param.Name}*]";
+                        description += $" [{param.Name}]";
                 }
             }
 

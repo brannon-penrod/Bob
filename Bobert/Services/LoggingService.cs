@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 
 namespace Bobert.Services
 {
-    class LoggingService
+    public class LoggingService
     {
         private readonly DiscordSocketClient _discord;
         private readonly CommandService _commands;

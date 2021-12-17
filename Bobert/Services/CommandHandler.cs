@@ -1,12 +1,9 @@
-﻿using Discord;
-using Discord.Commands;
+﻿using Discord.Commands;
 using Discord.WebSocket;
 using Microsoft.Extensions.Configuration;
 using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
 using System.Threading.Tasks;
+using Victoria;
 
 namespace Bobert.Services
 {
@@ -16,15 +13,18 @@ namespace Bobert.Services
         private readonly CommandService _commands;
         private readonly IConfigurationRoot _config;
         private readonly IServiceProvider _provider;
+        private readonly LavaNode _lavaNode;
 
-        public CommandHandler(DiscordSocketClient discord, CommandService commands, IConfigurationRoot config, IServiceProvider provider)
+        public CommandHandler(DiscordSocketClient discord, CommandService commands, IConfigurationRoot config, IServiceProvider provider, LavaNode node)
         {
             _discord = discord;
             _commands = commands;
             _config = config;
             _provider = provider;
+            _lavaNode = node;
 
             _discord.MessageReceived += OnMessageRecievedAsync;
+            _discord.Ready += OnReadyAsync;
         }
 
         private async Task OnMessageRecievedAsync(SocketMessage sm)
@@ -52,6 +52,12 @@ namespace Bobert.Services
                         $"from {context.User.Username}: {result.ErrorReason}");
                 }
             }
+        }
+
+        private async Task OnReadyAsync()
+        {
+            if (!_lavaNode.IsConnected)
+                await _lavaNode.ConnectAsync();
         }
     }
 }
