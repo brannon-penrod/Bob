@@ -24,21 +24,17 @@ namespace Bobert.Services
             _lavaNode = lavaNode;
             _disconnectTokens = new ConcurrentDictionary<ulong, CancellationTokenSource>();
 
-            //_lavaNode.OnLog += arg => {
-            //    _logger.Log(arg.Severity.FromSeverityToLevel(), arg.Exception, arg.Message);
-            //    return Task.CompletedTask;
-            //};
-
             _lavaNode.OnTrackEnded += OnTrackEnded;
             _lavaNode.OnTrackStarted += OnTrackStarted;
+
+            // Check for last user left to auto-leave.
+            // _client.UserVoiceStateUpdated += OnUserVoiceStateUpdated;
 
             VoteQueue = new HashSet<ulong>();
         }
 
         private async Task OnTrackStarted(TrackStartEventArgs arg)
         {
-            await arg.Player.TextChannel.SendMessageAsync($"Now playing: {arg.Track.Title}");
-
             await _client.SetGameAsync(arg.Track.Title, type: ActivityType.Listening);
 
             if (!_disconnectTokens.TryGetValue(arg.Player.VoiceChannel.Id, out var value))
@@ -52,7 +48,6 @@ namespace Bobert.Services
             }
 
             value.Cancel(true);
-            await arg.Player.TextChannel.SendMessageAsync("Auto disconnect has been cancelled!");
         }
 
         private async Task OnTrackEnded(TrackEndedEventArgs args)
@@ -65,20 +60,20 @@ namespace Bobert.Services
             var player = args.Player;
             if (!player.Queue.TryDequeue(out var lavaTrack))
             {
-                await player.TextChannel.SendMessageAsync("Queue completed.");
-                _ = InitiateDisconnectAsync(args.Player, TimeSpan.FromSeconds(10));
+                await player.TextChannel.SendMessageAsync(embed: Bot.MusicEmbed("Queue completed."));
+                // Leave 5 minutes after if no track was queued.
+                _ = InitiateDisconnectAsync(args.Player, TimeSpan.FromSeconds(300));
                 return;
             }
 
             if (lavaTrack is null)
             {
-                await player.TextChannel.SendMessageAsync("Next item in queue is not a track.");
+                await player.TextChannel.SendMessageAsync(embed: Bot.ErrorEmbed("Next item in queue is not a track."));
                 return;
             }
 
+            await args.Player.TextChannel.SendMessageAsync(embed: Bot.MusicEmbed($"Now playing: {lavaTrack.Title}"));
             await args.Player.PlayAsync(lavaTrack);
-            await args.Player.TextChannel.SendMessageAsync(
-                $"{args.Reason}: {args.Track.Title}\nNow playing: {lavaTrack.Title}");
         }
 
         private async Task InitiateDisconnectAsync(LavaPlayer player, TimeSpan timeSpan)
@@ -94,15 +89,15 @@ namespace Bobert.Services
                 value = _disconnectTokens[player.VoiceChannel.Id];
             }
 
-            await player.TextChannel.SendMessageAsync($"Auto disconnect initiated! Disconnecting in {timeSpan}...");
             var isCancelled = SpinWait.SpinUntil(() => value.IsCancellationRequested, timeSpan);
+
             if (isCancelled)
             {
                 return;
             }
 
             await _lavaNode.LeaveAsync(player.VoiceChannel);
-            await player.TextChannel.SendMessageAsync("Invite me again sometime, sugar.");
+            await player.TextChannel.SendMessageAsync(embed: Bot.MusicEmbed("Left the channel because nothing was playing."));
         }
     }
 }

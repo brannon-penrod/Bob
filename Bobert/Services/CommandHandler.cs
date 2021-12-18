@@ -38,18 +38,23 @@ namespace Bobert.Services
 
             int argPos = 0;
 
-            if (msg.HasStringPrefix(_config["prefix"], ref argPos) || msg.HasMentionPrefix(_discord.CurrentUser, ref argPos))
+            if (msg.HasStringPrefix(_config["prefix"], ref argPos) || msg.HasMentionPrefix(_discord.CurrentUser, ref argPos) || context.IsPrivate)
             {
                 var result = await _commands.ExecuteAsync(context, argPos, _provider);
 
                 if (!result.IsSuccess)
                 {
-                    await context.Channel.SendMessageAsync(result.ErrorReason);
+                    // TODO: Give Using statement upon valid command with invalid parameters
+                    await context.Channel.SendMessageAsync(embed: Bot.ErrorEmbed(result.ErrorReason));
 
-                    Console.WriteLine(
-                        $"[{DateTime.UtcNow.ToString("MM/dd/yyyy hh:mm:ss")}] " +
-                        $"{context.Guild.Name} in {context.Channel.Name} " +
-                        $"from {context.User.Username}: {result.ErrorReason}");
+                    Console.Write($"[{DateTime.UtcNow.ToString("MM/dd/yyyy hh:mm:ss")}] ");
+
+                    if (context.IsPrivate)
+                        Console.Write($"{context.User.Username}'s DMs ");
+                    else
+                        Console.Write($"{context.Guild?.Name} in {context.Channel.Name}) from {context.User.Username}: ");
+                    
+                    Console.WriteLine(result.ErrorReason);
                 }
             }
         }

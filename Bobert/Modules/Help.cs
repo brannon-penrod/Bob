@@ -2,11 +2,14 @@
 using Discord;
 using Discord.Commands;
 using Microsoft.Extensions.Configuration;
+using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 
 namespace Bobert.Modules
 {
+    [Summary("Commands to get information on the bot, or bot commands.")]
     public class Help : ModuleBase<SocketCommandContext>
     {
         private readonly CommandService _service;
@@ -19,53 +22,26 @@ namespace Bobert.Modules
         }
 
         [Command("help", ignoreExtraArgs: false)]
+        [Summary("Displays all modules on this bot.")]
         public async Task HelpAsync()
         {
-            // command list builder
-            var builder = new EmbedBuilder()
+            var builder = new EmbedBuilder
             {
-                Color = Bot.SuccessColor,
+                Color = ModuleColor.Help,
+                Title = "Modules",
+                Fields = new List<EmbedFieldBuilder>()
             };
 
-            builder.Description +=
-                    $"Prefix: {_config["prefix"]}\n" +
-                    $"[Required parameter]\n" +
-                    $"<Optional parameter>\n" +
-                    $"(Alias)";
-
-            // add all commands' information to the help message
+            // add all modules' information to the help message
             foreach (ModuleInfo module in _service.Modules)
             {
-                // to store module and command info
-                string description = null;
-
-                // add the command's information to the help message
-                foreach (CommandInfo cmd in module.Commands)
+                // add the module information to the help message builder
+                builder.AddField(f =>
                 {
-                    // the command has a summary
-                    if (cmd.Summary != null)
-                    {
-                        // check if the user has permission to use the command
-                        var result = await cmd.CheckPreconditionsAsync(Context);
-
-                        // the user has permission
-                        if (result.IsSuccess)
-                        {
-                            description += FormatCommand(cmd);
-                        }
-                    }
-                }
-
-                if (!string.IsNullOrWhiteSpace(description)) // something was added
-                {
-                    // add the module and command information to the help message builder
-                    builder.AddField(x =>
-                    {
-                        x.Name = module.Name;
-                        x.Value = description;
-                        x.IsInline = false;
-                    });
-                }
+                    f.Name = module.Name;
+                    f.Value = module.Summary ?? "No summary given.";
+                    f.IsInline = true;
+                });
             }
 
             if(!Context.IsPrivate)
@@ -73,72 +49,71 @@ namespace Bobert.Modules
 
             try
             {
-                await Context.User.SendMessageAsync("", false, builder.Build());
+                if (Context.IsPrivate)
+                    await ReplyAsync(embed: builder.Build());
+                else
+                    await Context.User.SendMessageAsync(embed: builder.Build());
             } catch(Discord.Net.HttpException)
             {
-                await Context.Channel.SendMessageAsync("It seems your DMs are not open. Sending Help message here instead.");
-
-                await Context.Channel.SendMessageAsync("", false, builder.Build());
+                // DMs are not open, sending message in context channel instead.
+                await ReplyAsync(embed: builder.Build());
             }
         }
 
-        [Command("help", ignoreExtraArgs: false)]
-        public async Task HelpAsync([Remainder] string commands)
+        [Command("help")]
+        [Summary("Shows help for the given module.")]
+        public async Task HelpAsync(string moduleName)
         {
             // command list builder
-            var builder = new EmbedBuilder()
-            {
-                Color = Bot.SuccessColor,
-            };
+            var builder = new EmbedBuilder();
 
-            // a command search was entered
-            if (commands != null)
-            {
-                // separate the search terms by spaces
-                string[] searches = commands.Split(' ');
+            builder.Description +=
+                    $"Prefix: {_config["prefix"]}\n" +
+                    "[Required parameter]\n" +
+                    "<Optional parameter>\n" +
+                    "(Alias)\n";
 
-                // conduct a search of the term, then add info if any is found
-                foreach (string search in searches)
+            var module = _service.Modules.Where(m => string.Equals(m.Name, moduleName, StringComparison.InvariantCultureIgnoreCase)).FirstOrDefault();
+
+            if (module == null)
+            {
+                await ReplyAsync(embed: Bot.ErrorEmbed($"Invalid module name: `{moduleName}`. Use {_config["prefix"]}help to view modules."));
+                return;
+            }
+
+            builder.Color = ModuleColor.GetColorFromModuleName(moduleName);
+
+            builder.Title = module.Name;
+
+            // add the command's information to the help message
+            foreach (CommandInfo cmd in module.Commands)
+            {
+                builder.AddField(f =>
                 {
-                    // to store module and command info
-                    string description = null;
+                    f.Name = FormatAliasesAndParameters(cmd);
+                    f.Value = cmd.Summary ?? "No command summary given.";
+                    f.IsInline = true;
+                });
+            }
 
-                    // search for the search terms in Context
-                    var result = _service.Search(Context, search);
-
-                    if (result.IsSuccess)
-                    {
-                        // add the command's information to the help message
-                        foreach (CommandMatch match in result.Commands)
-                        {
-                            // store the match's command
-                            var cmd = match.Command;
-
-                            description += FormatCommand(cmd);
-                        }
-
-                        // matches were found
-                        if (!string.IsNullOrEmpty(description))
-                        {
-                            // add description to the builder's description
-                            builder.Description += description;
-                        }
-                    }
-
-                    else builder.Description += $"No command found with name {search}.\n";
-                }
-
-                if (!Context.IsPrivate)
-                    await Context.Message.DeleteAsync();
-
-                await Context.User.SendMessageAsync(embed: builder.Build());
+            try
+            {
+                if (Context.IsPrivate)
+                    await ReplyAsync(embed: builder.Build());
+                else
+                    await Context.User.SendMessageAsync(embed: builder.Build());
+            }
+            catch (Discord.Net.HttpException)
+            {
+                // DMs are not open, sending message in context channel instead.
+                await ReplyAsync(embed: builder.Build());
             }
         }
 
-        private string FormatCommand(CommandInfo cmd)
+        private string FormatAliasesAndParameters(CommandInfo cmd)
         {
             // add cmd's first alias to the description
-            string description = $"**{cmd.Aliases.First()}**";
+            string description = cmd.Aliases.First();
 
             if (cmd.Aliases.Count > 1)
             {
@@ -161,9 +136,6 @@ namespace Bobert.Modules
                         description += $" [{param.Name}]";
                 }
             }
-
-            // add command summary
-            description += $":\n {cmd.Summary}\n";
 
             return description;
         }
