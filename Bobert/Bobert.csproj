@@ -16,4 +16,8 @@
     <PackageReference Include="Victoria" Version="5.2.4" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Folder Include="Database\" />
+  </ItemGroup>
+
 </Project>

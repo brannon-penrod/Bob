@@ -53,7 +53,6 @@ namespace Bobert.Modules
             try
             {
                 await _lavaNode.JoinAsync(voiceState.VoiceChannel, Context.Channel as ITextChannel);
-                await Context.Message.AddReactionAsync(new Emoji("👋"));
             }
             catch (Exception ex)
             {
@@ -85,7 +84,6 @@ namespace Bobert.Modules
             try
             {
                 await _lavaNode.LeaveAsync(voiceChannel);
-                await Context.Message.AddReactionAsync(new Emoji("👋"));
             }
             catch (Exception ex)
             {
@@ -252,7 +250,7 @@ namespace Bobert.Modules
             try
             {
                 await player.StopAsync();
-                await ReplyAsync(embed: Bot.MusicEmbed($"Removed all tracks from queue."));
+                await ReplyAsync(embed: Bot.MusicEmbed($"Skipped the current song and removed all tracks from queue."));
             }
             catch (Exception ex)
             {
@@ -384,7 +382,7 @@ namespace Bobert.Modules
             builder.AddField(f =>
             {
                 f.Name = $"Now Playing: {player.Track.Title}";
-                f.Value = $"{Bot.FormatTimeSpan(player.Track.Position)} / {Bot.FormatTimeSpan(player.Track.Duration)}";
+                f.Value = $"{Bot.FormatTimeSpan(player.Track.Position)} / {Bot.FormatTimeSpan(player.Track.Duration)} - [Link]({player.Track.Url})";
                 f.IsInline = false;
             });
 
@@ -401,7 +399,7 @@ namespace Bobert.Modules
                     builder.AddField(f =>
                     {
                         f.Name = $"{queueIndex}. {track.Title}";
-                        f.Value = $"Duration: {Bot.FormatTimeSpan(track.Duration)}";
+                        f.Value = $"Duration: {Bot.FormatTimeSpan(track.Duration)} - [Link]({track.Url})";
                         f.IsInline = false;
                     });
 
@@ -419,6 +417,126 @@ namespace Bobert.Modules
             };
 
             await ReplyAsync(embed: builder.Build());
+        }
+
+        [Command("clear")]
+        [Summary("Clears the queue of all upcoming tracks.")]
+        public async Task ClearQueueAsync()
+        {
+            if (!_lavaNode.TryGetPlayer(Context.Guild, out LavaPlayer player))
+            {
+                await ReplyAsync(embed: Bot.ErrorEmbed("Not connected to a voice channel."));
+                return;
+            }
+
+            if(player.Queue.Count == 0)
+            {
+                await ReplyAsync(embed: Bot.ErrorEmbed("No tracks are in queue."));
+                return;
+            }
+
+            try
+            {
+                var count = player.Queue.Count;
+                player.Queue.Clear();
+                await ReplyAsync(embed: Bot.MusicEmbed($"Cleared {count} track{(count > 1 ? 's' : null)} from queue."));
+            }
+            catch(Exception ex)
+            {
+                await ReplyAsync(embed: Bot.ErrorEmbed(ex.Message));
+            }
+        }
+        
+        [Command("remove")]
+        [Summary("Removes the tracks from the given start index to the given end index, or just the given track if no end index is provided.")]
+        public async Task RemoveTracksAsync(int start, int end = -1)
+        {
+            if (!_lavaNode.TryGetPlayer(Context.Guild, out LavaPlayer player))
+            {
+                await ReplyAsync(embed: Bot.ErrorEmbed("Not connected to a voice channel."));
+                return;
+            }
+
+            if (player.Queue.Count == 0)
+            {
+                await ReplyAsync(embed: Bot.ErrorEmbed("No tracks are in queue."));
+                return;
+            }
+
+            if (end == -1)
+                end = start;
+
+            if (start < 1)
+            {
+                await ReplyAsync(embed: Bot.ErrorEmbed("Indexes must be greater than 1."));
+                return;
+            }
+
+            if(start > player.Queue.Count || end > player.Queue.Count)
+            {
+                await ReplyAsync("Indexes must be less than the total queue length.");
+                return;
+            }
+
+            else if (end < start || start > end)
+            {
+                await ReplyAsync(embed: Bot.ErrorEmbed("Start index must be greater than end index."));
+                return;
+            }
+
+            try
+            {
+                var count = end - start + 1;
+
+                if (count == 1)
+                {
+                    var track = player.Queue.ElementAt(start);
+                    player.Queue.RemoveAt(start);
+
+                    await ReplyAsync(embed: Bot.MusicEmbed($"Removed **{start}. [{track.Title}]({track.Url})** from queue."));
+                }
+                else
+                {
+                    for (int i = start; i < end; i++)
+                    {
+                        player.Queue.RemoveAt(i - 1);
+                    }
+
+                    await ReplyAsync(embed: Bot.MusicEmbed($"Removed {count} tracks from queue."));
+                }
+            }
+            catch (Exception ex)
+            {
+                await ReplyAsync(embed: Bot.ErrorEmbed(ex.Message));
+            }
+        }
+
+        [Command("shuffle")]
+        [Summary("Shuffles the current playlist.")]
+        public async Task ShuffleQueueAsync()
+        {
+            if (!_lavaNode.TryGetPlayer(Context.Guild, out LavaPlayer player))
+            {
+                await ReplyAsync(embed: Bot.ErrorEmbed("Not connected to a voice channel."));
+                return;
+            }
+
+            if (player.Queue.Count < 2)
+            {
+                await ReplyAsync(embed: Bot.ErrorEmbed("Not enough tracks in queue to shuffle."));
+                return;
+            }
+
+            try
+            {
+                player.Queue.Shuffle();
+                var nextUp = player.Queue.ElementAt(0);
+                await ReplyAsync(embed: Bot.MusicEmbed($"Shuffled the queue. Up next: [{nextUp.Title}]({nextUp.Url})"));
+            }
+            catch(Exception ex)
+            {
+                await ReplyAsync(embed: Bot.ErrorEmbed(ex.Message));
+            }
         }
 
         [Command("song")]

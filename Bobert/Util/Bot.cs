@@ -39,7 +39,7 @@ namespace Bobert
             {
                 Color = ModuleColor.Music,
                 Title = message,
-                Description = track.Title,
+                Description = $"[{track.Title}]({track.Url})",
                 Footer = new EmbedFooterBuilder()
                 {
                     IconUrl = queuer?.GetAvatarUrl() ?? null,

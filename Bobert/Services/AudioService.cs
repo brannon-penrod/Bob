@@ -1,8 +1,10 @@
 ﻿using Discord;
 using Discord.WebSocket;
+using Microsoft.Extensions.Configuration;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Victoria;
@@ -15,14 +17,18 @@ namespace Bobert.Services
     {
         private readonly DiscordSocketClient _client;
         private readonly LavaNode _lavaNode;
-        public readonly HashSet<ulong> VoteQueue;
-        private readonly ConcurrentDictionary<ulong, CancellationTokenSource> _disconnectTokens;
+        private readonly IConfigurationRoot _config;
 
-        public AudioService(DiscordSocketClient client, LavaNode lavaNode)
+        public readonly HashSet<ulong> VoteQueue;
+        private readonly ConcurrentDictionary<ulong, CancellationTokenSource> DisconnectTokens;
+
+        public AudioService(DiscordSocketClient client, LavaNode lavaNode, IConfigurationRoot config)
         {
             _client = client;
             _lavaNode = lavaNode;
-            _disconnectTokens = new ConcurrentDictionary<ulong, CancellationTokenSource>();
+            _config = config;
+
+            DisconnectTokens = new ConcurrentDictionary<ulong, CancellationTokenSource>();
 
             _lavaNode.OnTrackEnded += OnTrackEnded;
             _lavaNode.OnTrackStarted += OnTrackStarted;
@@ -37,7 +43,7 @@ namespace Bobert.Services
         {
             await _client.SetGameAsync(arg.Track.Title, type: ActivityType.Listening);
 
-            if (!_disconnectTokens.TryGetValue(arg.Player.VoiceChannel.Id, out var value))
+            if (!DisconnectTokens.TryGetValue(arg.Player.VoiceChannel.Id, out var value))
             {
                 return;
             }
@@ -61,8 +67,9 @@ namespace Bobert.Services
             if (!player.Queue.TryDequeue(out var lavaTrack))
             {
                 await player.TextChannel.SendMessageAsync(embed: Bot.MusicEmbed("Queue completed."));
+                await _client.SetGameAsync($"{_config["prefix"]}help", type: ActivityType.Listening);
                 // Leave 5 minutes after if no track was queued.
-                _ = InitiateDisconnectAsync(args.Player, TimeSpan.FromSeconds(300));
+                await InitiateDisconnectAsync(args.Player, TimeSpan.FromMinutes(5d));
                 return;
             }
 
@@ -72,21 +79,21 @@ namespace Bobert.Services
                 return;
             }
 
-            await args.Player.TextChannel.SendMessageAsync(embed: Bot.MusicEmbed($"Now playing: {lavaTrack.Title}"));
+            await args.Player.TextChannel.SendMessageAsync(embed: Bot.MusicEmbed($"Now playing: [{lavaTrack.Title}]({lavaTrack.Url})"));
             await args.Player.PlayAsync(lavaTrack);
         }
 
         private async Task InitiateDisconnectAsync(LavaPlayer player, TimeSpan timeSpan)
         {
-            if (!_disconnectTokens.TryGetValue(player.VoiceChannel.Id, out var value))
+            if (!DisconnectTokens.TryGetValue(player.VoiceChannel.Id, out var value))
             {
                 value = new CancellationTokenSource();
-                _disconnectTokens.TryAdd(player.VoiceChannel.Id, value);
+                DisconnectTokens.TryAdd(player.VoiceChannel.Id, value);
             }
             else if (value.IsCancellationRequested)
             {
-                _disconnectTokens.TryUpdate(player.VoiceChannel.Id, new CancellationTokenSource(), value);
-                value = _disconnectTokens[player.VoiceChannel.Id];
+                DisconnectTokens.TryUpdate(player.VoiceChannel.Id, new CancellationTokenSource(), value);
+                value = DisconnectTokens[player.VoiceChannel.Id];
             }
 
             var isCancelled = SpinWait.SpinUntil(() => value.IsCancellationRequested, timeSpan);
